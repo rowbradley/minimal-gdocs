@@ -15,6 +15,16 @@ A minimal MCP server for creating and updating Google Docs from markdown. Built 
   - Horizontal rules
   - Code blocks (monospace)
 
+## Design Philosophy
+
+minimal-gdocs intentionally stays minimal:
+- **4 core tools** covering the essential document lifecycle
+- **Zero configuration** beyond OAuth credentials
+- **No batch operations** or complex workflows
+- **~274 tokens** of context overhead (vs ~3,000 for full-featured alternatives)
+
+If you need advanced features (comments, sheets, drive management, sharing), consider [google-docs-mcp](https://github.com/a-bonus/google-docs-mcp) instead.
+
 ## Installation
 
 ```bash
