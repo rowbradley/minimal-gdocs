@@ -18,7 +18,7 @@ A minimal MCP server for creating and updating Google Docs from markdown. Built 
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/minimal-gdocs.git
+git clone https://github.com/rowbradley/minimal-gdocs.git
 cd minimal-gdocs
 npm install
 npm run build

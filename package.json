@@ -24,12 +24,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rowanbradley/minimal-gdocs.git"
+    "url": "git+https://github.com/rowbradley/minimal-gdocs.git"
   },
   "bugs": {
-    "url": "https://github.com/rowanbradley/minimal-gdocs/issues"
+    "url": "https://github.com/rowbradley/minimal-gdocs/issues"
   },
-  "homepage": "https://github.com/rowanbradley/minimal-gdocs#readme",
+  "homepage": "https://github.com/rowbradley/minimal-gdocs#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
     "googleapis": "^140.0.0",
