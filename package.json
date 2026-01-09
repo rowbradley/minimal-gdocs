@@ -1,0 +1,51 @@
+{
+  "name": "minimal-gdocs",
+  "version": "1.0.0",
+  "description": "Minimal MCP server for creating and updating Google Docs from markdown",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "minimal-gdocs": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "google-docs",
+    "claude",
+    "markdown",
+    "anthropic"
+  ],
+  "author": "Rowan Bradley",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rowanbradley/minimal-gdocs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rowanbradley/minimal-gdocs/issues"
+  },
+  "homepage": "https://github.com/rowanbradley/minimal-gdocs#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "googleapis": "^140.0.0",
+    "open": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "credentials.example.json",
+    "README.md",
+    "LICENSE"
+  ]
+}
