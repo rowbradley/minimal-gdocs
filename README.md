@@ -34,7 +34,7 @@ npm install
 npm run build
 ```
 
-Or via npm (once published):
+Or via npm:
 ```bash
 npx minimal-gdocs
 ```
