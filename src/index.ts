@@ -159,6 +159,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 (req.createParagraphBullets.range as { startIndex: number }).startIndex += endIndex;
                 (req.createParagraphBullets.range as { endIndex: number }).endIndex += endIndex;
               }
+              if (req.insertTable?.location?.index != null) {
+                (req.insertTable.location as { index: number }).index += endIndex;
+              }
             }
           }
 
