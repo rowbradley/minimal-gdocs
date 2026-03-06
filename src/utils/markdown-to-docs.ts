@@ -9,11 +9,19 @@ interface InlineStyle {
   url?: string;
 }
 
+interface TableCell {
+  cleanText: string;
+  styles: InlineStyle[];
+}
+
 interface Block {
-  type: 'heading' | 'paragraph' | 'bullet' | 'numbered' | 'code' | 'hr';
+  type: 'heading' | 'paragraph' | 'bullet' | 'numbered' | 'code' | 'hr' | 'table' | 'blockquote';
   level?: number;
   cleanText: string;  // text with markdown syntax stripped
   styles: InlineStyle[];
+  rows?: number;
+  cols?: number;
+  cells?: TableCell[][];  // cells[rowIndex][colIndex]
 }
 
 /**
@@ -33,10 +41,35 @@ function parseMarkdown(markdown: string): Block[] {
   const lines = markdown.split('\n');
   let inCodeBlock = false;
   let codeBlockContent = '';
+  let inTable = false;
+  let tableRows: string[][] = [];
+
+  function flushTable() {
+    if (tableRows.length > 0) {
+      const maxCols = Math.max(...tableRows.map(r => r.length));
+      const cells: TableCell[][] = tableRows.map(row => {
+        const paddedRow = [...row];
+        while (paddedRow.length < maxCols) paddedRow.push('');
+        return paddedRow.map(cellText => parseInlineFormatting(cellText));
+      });
+
+      blocks.push({
+        type: 'table',
+        cleanText: '',
+        styles: [],
+        rows: tableRows.length,
+        cols: maxCols,
+        cells
+      });
+    }
+    inTable = false;
+    tableRows = [];
+  }
 
   for (const line of lines) {
     // Handle code blocks
     if (line.startsWith('```')) {
+      if (inTable) flushTable();
       if (inCodeBlock) {
         if (codeBlockContent) {
           blocks.push({
@@ -58,6 +91,25 @@ function parseMarkdown(markdown: string): Block[] {
       continue;
     }
 
+    // Handle table rows
+    const isTableRow = /^\s*\|(.+)\|\s*$/.test(line);
+    const isSeparatorRow = /^\s*\|[\s\-:|]+\|\s*$/.test(line);
+
+    if (isTableRow) {
+      if (isSeparatorRow) {
+        inTable = true;
+        continue;
+      }
+
+      inTable = true;
+      const cells = line.trim().split('|').slice(1, -1).map(c => c.trim());
+      tableRows.push(cells);
+      continue;
+    }
+
+    // Flush pending table on non-table line
+    if (inTable) flushTable();
+
     // Skip empty lines - add empty paragraph
     if (!line.trim()) {
       blocks.push({ type: 'paragraph', cleanText: '', styles: [] });
@@ -67,6 +119,9 @@ function parseMarkdown(markdown: string): Block[] {
     // Parse the line into a block
     blocks.push(parseLine(line));
   }
+
+  // Flush any pending table at EOF
+  if (inTable) flushTable();
 
   return blocks;
 }
@@ -96,6 +151,13 @@ function parseLine(line: string): Block {
   if (numberedMatch) {
     const { cleanText, styles } = parseInlineFormatting(numberedMatch[2]);
     return { type: 'numbered', level: Math.floor(numberedMatch[1].length / 2), cleanText, styles };
+  }
+
+  // Block quotes: > text
+  const blockquoteMatch = line.match(/^>\s?(.*)$/);
+  if (blockquoteMatch) {
+    const { cleanText, styles } = parseInlineFormatting(blockquoteMatch[1]);
+    return { type: 'blockquote', cleanText, styles };
   }
 
   // Regular paragraph
@@ -292,6 +354,106 @@ function generateRequests(blocks: Block[]): Request[] {
   let currentIndex = 1; // Google Docs starts at index 1
 
   for (const block of blocks) {
+    // Handle tables separately (different insertion pattern)
+    if (block.type === 'table' && block.cells && block.rows && block.cols) {
+      const R = block.rows;
+      const C = block.cols;
+      const tableStartIndex = currentIndex;
+
+      // Insert the table structure
+      insertRequests.push({
+        insertTable: {
+          location: { index: tableStartIndex },
+          rows: R,
+          columns: C
+        }
+      });
+
+      // Build list of cells with content
+      const cellInserts: { r: number; c: number; text: string; styles: InlineStyle[] }[] = [];
+      for (let r = 0; r < R; r++) {
+        for (let c = 0; c < C; c++) {
+          const cell = block.cells[r][c];
+          if (cell.cleanText) {
+            cellInserts.push({ r, c, text: cell.cleanText, styles: cell.styles });
+          }
+        }
+      }
+
+      // Insert cell text in reverse order (last cell first, so index shifts don't cascade)
+      for (let i = cellInserts.length - 1; i >= 0; i--) {
+        const entry = cellInserts[i];
+        const cellIndex = tableStartIndex + 4 + entry.r * (1 + C * 2) + entry.c * 2;
+        insertRequests.push({
+          insertText: {
+            location: { index: cellIndex },
+            text: entry.text
+          }
+        });
+      }
+
+      // Formatting: compute final positions with cumulative shift tracking
+      let cumulativeShift = 0;
+      for (let r = 0; r < R; r++) {
+        for (let c = 0; c < C; c++) {
+          const cell = block.cells[r][c];
+          const baseCellIndex = tableStartIndex + 4 + r * (1 + C * 2) + c * 2;
+          const finalCellIndex = baseCellIndex + cumulativeShift;
+
+          if (cell.cleanText) {
+            // Bold header row (row 0)
+            if (r === 0) {
+              formatRequests.push({
+                updateTextStyle: {
+                  range: { startIndex: finalCellIndex, endIndex: finalCellIndex + cell.cleanText.length },
+                  textStyle: { bold: true },
+                  fields: 'bold'
+                }
+              });
+            }
+
+            // Inline styles within cells
+            for (const style of cell.styles) {
+              const styleStart = finalCellIndex + style.start;
+              const styleEnd = finalCellIndex + style.end;
+
+              if (style.type === 'bold') {
+                formatRequests.push({
+                  updateTextStyle: {
+                    range: { startIndex: styleStart, endIndex: styleEnd },
+                    textStyle: { bold: true },
+                    fields: 'bold'
+                  }
+                });
+              } else if (style.type === 'italic') {
+                formatRequests.push({
+                  updateTextStyle: {
+                    range: { startIndex: styleStart, endIndex: styleEnd },
+                    textStyle: { italic: true },
+                    fields: 'italic'
+                  }
+                });
+              } else if (style.type === 'link' && style.url) {
+                formatRequests.push({
+                  updateTextStyle: {
+                    range: { startIndex: styleStart, endIndex: styleEnd },
+                    textStyle: { link: { url: style.url } },
+                    fields: 'link'
+                  }
+                });
+              }
+            }
+
+            cumulativeShift += cell.cleanText.length;
+          }
+        }
+      }
+
+      // Advance past the table: auto-newline before + table structure, landing on auto-newline after
+      currentIndex += 3 + R * (C * 2 + 1) + cumulativeShift;
+      continue;
+    }
+
     const text = block.cleanText + '\n';
     const startIndex = currentIndex;
     const endIndex = currentIndex + text.length;
@@ -305,6 +467,17 @@ function generateRequests(blocks: Block[]): Request[] {
     });
 
     // Block-level formatting
+    if (block.type === 'paragraph' || block.type === 'blockquote') {
+      // Explicitly reset to NORMAL_TEXT to override any inherited styles
+      formatRequests.push({
+        updateParagraphStyle: {
+          range: { startIndex, endIndex },
+          paragraphStyle: { namedStyleType: 'NORMAL_TEXT' },
+          fields: 'namedStyleType'
+        }
+      });
+    }
+
     if (block.type === 'heading' && block.level) {
       formatRequests.push({
         updateParagraphStyle: {
@@ -328,14 +501,52 @@ function generateRequests(blocks: Block[]): Request[] {
         }
       });
     } else if (block.type === 'code') {
+      // Font styling
       formatRequests.push({
         updateTextStyle: {
-          range: { startIndex, endIndex: endIndex - 1 }, // exclude trailing newline
+          range: { startIndex, endIndex: endIndex - 1 },
           textStyle: {
             weightedFontFamily: { fontFamily: 'Courier New' },
             fontSize: { magnitude: 10, unit: 'PT' }
           },
           fields: 'weightedFontFamily,fontSize'
+        }
+      });
+      // Paragraph styling: shading, borders, padding
+      formatRequests.push({
+        updateParagraphStyle: {
+          range: { startIndex, endIndex },
+          paragraphStyle: {
+            shading: {
+              backgroundColor: { color: { rgbColor: { red: 0.95, green: 0.95, blue: 0.95 } } }
+            },
+            borderTop: {
+              color: { color: { rgbColor: { red: 0.85, green: 0.85, blue: 0.85 } } },
+              width: { magnitude: 1, unit: 'PT' },
+              padding: { magnitude: 6, unit: 'PT' },
+              dashStyle: 'SOLID'
+            },
+            borderBottom: {
+              color: { color: { rgbColor: { red: 0.85, green: 0.85, blue: 0.85 } } },
+              width: { magnitude: 1, unit: 'PT' },
+              padding: { magnitude: 6, unit: 'PT' },
+              dashStyle: 'SOLID'
+            },
+            borderLeft: {
+              color: { color: { rgbColor: { red: 0.85, green: 0.85, blue: 0.85 } } },
+              width: { magnitude: 1, unit: 'PT' },
+              padding: { magnitude: 6, unit: 'PT' },
+              dashStyle: 'SOLID'
+            },
+            borderRight: {
+              color: { color: { rgbColor: { red: 0.85, green: 0.85, blue: 0.85 } } },
+              width: { magnitude: 1, unit: 'PT' },
+              padding: { magnitude: 6, unit: 'PT' },
+              dashStyle: 'SOLID'
+            },
+            indentStart: { magnitude: 12, unit: 'PT' }
+          },
+          fields: 'shading,borderTop,borderBottom,borderLeft,borderRight,indentStart'
         }
       });
     } else if (block.type === 'hr') {
@@ -352,6 +563,33 @@ function generateRequests(blocks: Block[]): Request[] {
             }
           },
           fields: 'borderBottom'
+        }
+      });
+    } else if (block.type === 'blockquote') {
+      // Left border + indentation
+      formatRequests.push({
+        updateParagraphStyle: {
+          range: { startIndex, endIndex },
+          paragraphStyle: {
+            borderLeft: {
+              color: { color: { rgbColor: { red: 0.56, green: 0.63, blue: 0.71 } } },
+              width: { magnitude: 3, unit: 'PT' },
+              padding: { magnitude: 6, unit: 'PT' },
+              dashStyle: 'SOLID'
+            },
+            indentStart: { magnitude: 18, unit: 'PT' }
+          },
+          fields: 'borderLeft,indentStart'
+        }
+      });
+      // Muted text color
+      formatRequests.push({
+        updateTextStyle: {
+          range: { startIndex, endIndex: endIndex - 1 },
+          textStyle: {
+            foregroundColor: { color: { rgbColor: { red: 0.33, green: 0.33, blue: 0.33 } } }
+          },
+          fields: 'foregroundColor'
         }
       });
     }
